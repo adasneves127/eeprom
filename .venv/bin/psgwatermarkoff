@@ -1,4 +1,4 @@
-#!/home/adasneves/Desktop/src/EEPROM_Programmer/.venv/bin/python3.12
+#!/home/adasneves/Desktop/src/eeprom/.venv/bin/python3.12
 # -*- coding: utf-8 -*-
 import re
 import sys
