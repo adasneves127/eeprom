@@ -155,7 +155,7 @@ class GUI_Interface:
             elif event == "Read":
                 self.readEEPROM()
             elif event == "Save":
-                self.save_buffer(vals)
+                self.save_buffer()
             elif event == "Open":
                 self.readFile(vals)
             elif event == "Erase":
