@@ -1,4 +1,4 @@
-import PySimpleGUI as psg
+from PySimpleGUI import Text, Button, Multiline, Push, Input, Window,popup_get_file, Combo
 import requests
 import base64
 import tempfile
@@ -8,18 +8,29 @@ import subprocess
 class GUI_Interface:
     def __init__(self):
         layout = [
-            [psg.Text("Base64 EEPROM Image URL"), psg.Input(key="url"), 
-             psg.Button("Get URL")],
-            [psg.Multiline(size=(None, 33),font=('Courier New', 12), 
+            [Text("Base64 EEPROM Image URL"), Input(key="url"), 
+             Button("Get URL"), Combo([], key="devices")],
+            [Multiline(size=(None, 33),font=('Courier New', 12), 
                            key="output")],
-            [psg.Button('Edit'), psg.Push(), psg.Button('Write'), psg.Push(),
-             psg.Button('Open'), psg.FileBrowse(key='Browse', visible=False), psg.Push(),
-             psg.Button('Read'), psg.Push(), psg.FileSaveAs("Choose File",file_types=(("Binary Files", "*.bin"),)), psg.Button("Save"), psg.Push(),
-
-             psg.Button('Exit')]]
-        self.window = psg.Window('EPROM IDE', layout, size=(870,730))
+            [
+                Button('Read'),Button('Write'),Button("Erase"),
+                Push(), Button('Edit'), Push(), Button('Open'), Button("Save"),
+                Push(), Button('Exit')]]
+        self.window = Window('EPROM IDE', layout, size=(870,730), finalize=True)
         self.isValidData = False
         self.raw_data = None
+        self.get_devices()
+        self.device_choice = "AT28C256"
+
+    def get_devices(self):
+        proc = subprocess.Popen(["/usr/local/bin/minipro", "-l"], stdout=subprocess.PIPE)
+        devices = proc.stdout.read().decode().split("\n")
+        valid_devices = []
+        for device in devices:
+            if device.startswith("AT28C") or device.startswith("AT27C"):
+                valid_devices.append(device)
+
+        self.window['devices'].update(values=valid_devices, value="AT28C256")
 
     def parse_result(self, result: str):
         with tempfile.TemporaryDirectory() as dir:
@@ -56,24 +67,19 @@ class GUI_Interface:
         with tempfile.TemporaryDirectory() as dir:
             with open(dir + "/img.bin", 'wb') as f:
                 f.write(self.raw_data)
-            proc = subprocess.Popen(["/usr/bin/xterm", "-e", "/usr/local/bin/minipro", "-p", "AT28C256", '-w', dir + "/img.bin"])
+            proc = subprocess.Popen(["/usr/bin/xterm", "-e", "/usr/local/bin/minipro", "-p", self.device_choice, '-w', dir + "/img.bin", '-s'])
             proc.communicate()
     
     def readFile(self,vals):
-#        layout =    [[psg.Input(key='_FILEBROWSE_', enable_events=True, visible=False)],
-#            [psg.FileBrowse(target='_FILEBROWSE_')],
-#            [psg.OK()],]
-
-#        window = psg.Window('My new window',layout,size=(100,100),modal=True)
-#        return
         print(vals)
-        filename = ""
-        if vals.get('Browse', '') == '':
-            print("Please press Browse first")
-            filename = psg.popup_get_file("Open a File", no_window=True)
-        else:
-            filename=vals["Browse"]
-        print(vals["Browse"])
+        filename = popup_get_file("Open a File", no_window=True,
+                                      file_types=(
+                                          ("Binary File", "*.bin"),
+                                          ("Text File", "*.txt")
+                                      ))
+        if filename is None:
+            return
+        
         if(filename.endswith(".txt")):
             with open(filename,"r") as f:
                 binbuffer=f.read().split("\n")[:-1]
@@ -86,12 +92,13 @@ class GUI_Interface:
             with open(filename,"rb") as f:
                 self.raw_data=f.read()
         self.update_from_raw()
+        self.isValidData = True
 
 
     def readEEPROM(self):
         with tempfile.TemporaryDirectory() as dir:
-            proc = subprocess.Popen(["/usr/bin/xterm", "-e", "/usr/local/bin/minipro", "-p", "AT28C256", '-r', dir + "/img.bin"])
-            proc.communicate() 
+            proc = subprocess.Popen(["/usr/bin/xterm", "-e", "/usr/local/bin/minipro", "-p", self.device_choice, '-r', dir + "/img.bin"])   
+            proc.communicate()
 
             with open(dir + "/img.bin", 'rb') as f:
                 self.raw_data = f.read()
@@ -99,15 +106,34 @@ class GUI_Interface:
             self.isValidData = True
     
 
-    def save_buffer(self, vals):
-        with open(vals['Choose File'], 'wb') as f:
-            f.write(self.raw_data)
+    def save_buffer(self):
+        filename = popup_get_file("Open a File", no_window=True,
+                                      file_types=(
+                                          ("Binary File", "*.bin"),
+                                          ("Text File", "*.txt")
+                                      ),
+                                      save_as=True)
+        if filename is None or self.raw_data is None:
+            return
+        
+        if(filename.endswith(".txt")):
+            with open(filename,"w") as f:
+                    f.writelines([
+                        hex(x)[2:]
+                        for x in self.raw_data
+                    ])
+        else:
+            with open(filename,"wb") as f:
+                f.write(self.raw_data)
 
+    def eraseEEPROM(self):
+        proc = subprocess.Popen(["/usr/bin/xterm", "-e", "/usr/local/bin/minipro", "-p", self.device_choice, '-E'])   
+        proc.communicate()
 
     def __call__(self):
         while True:
             event, vals = self.window.read()
-            print(event)
+            self.device_choice = vals['devices']
             if event in (None, 'Exit'):
                 break
             elif event == 'Get URL':
@@ -132,3 +158,5 @@ class GUI_Interface:
                 self.save_buffer(vals)
             elif event == "Open":
                 self.readFile(vals)
+            elif event == "Erase":
+                self.eraseEEPROM()
